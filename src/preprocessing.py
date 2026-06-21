@@ -1,7 +1,23 @@
 import numpy as np
 import pandas as pd
 
-def dataset_summary(name, df):
+
+def dataset_summary(name: str, df: pd.DataFrame) -> None:
+    """
+    Imprime resumen estadístico de un DataFrame: dtypes, nulls y valores únicos.
+
+    Parámetros
+    ----------
+    name : str
+        Nombre descriptivo del dataset, usado en el encabezado impreso.
+    df : pd.DataFrame
+        DataFrame a resumir.
+
+    Retorna
+    -------
+    None
+        Imprime el resumen directamente.
+    """
     summary = pd.DataFrame({
         "dtype":    df.dtypes,
         "non_null": df.notnull().sum(),

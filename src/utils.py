@@ -6,7 +6,21 @@ from sklearn.metrics import ConfusionMatrixDisplay, roc_curve, auc
 
 
 def dataset_summary(name: str, df: pd.DataFrame) -> None:
-    """Imprime resumen estadístico de un DataFrame: dtypes, nulls y valores únicos."""
+    """
+    Imprime resumen estadístico de un DataFrame: dtypes, nulls y valores únicos.
+
+    Parámetros
+    ----------
+    name : str
+        Nombre descriptivo del dataset, usado en el encabezado impreso.
+    df : pd.DataFrame
+        DataFrame a resumir.
+
+    Retorna
+    -------
+    None
+        Imprime el resumen directamente.
+    """
     summary = pd.DataFrame({
         "dtype":    df.dtypes,
         "non_null": df.notnull().sum(),
@@ -23,7 +37,13 @@ def dataset_summary(name: str, df: pd.DataFrame) -> None:
 
 
 def set_plot_style() -> None:
-    """Configura estilo visual consistente para todos los notebooks."""
+    """
+    Configura estilo visual consistente para todos los notebooks.
+
+    Retorna
+    -------
+    None
+    """
     sns.set_theme(style="whitegrid", palette="muted")
     plt.rcParams.update({
         "figure.figsize": (12, 5),
@@ -35,7 +55,23 @@ def set_plot_style() -> None:
 
 
 def plot_confusion_matrix(y_true, y_pred, model_name: str) -> None:
-    """Grafica la matriz de confusión con etiquetas 'Baja' / 'Sube'."""
+    """
+    Grafica la matriz de confusión con etiquetas 'Baja' / 'Sube'.
+
+    Parámetros
+    ----------
+    y_true : array
+        Etiquetas verdaderas.
+    y_pred : array
+        Etiquetas predichas por el modelo.
+    model_name : str
+        Nombre del modelo, usado en el título del gráfico.
+
+    Retorna
+    -------
+    None
+        Muestra el gráfico directamente.
+    """
     fig, ax = plt.subplots(figsize=(5, 4))
     ConfusionMatrixDisplay.from_predictions(
         y_true, y_pred,
@@ -49,12 +85,22 @@ def plot_confusion_matrix(y_true, y_pred, model_name: str) -> None:
 
 
 def plot_roc_curves(models_dict: dict, X_test, y_test) -> None:
-    """Grafica curvas ROC superpuestas para múltiples modelos.
+    """
+    Grafica curvas ROC superpuestas para múltiples modelos.
 
-    Args:
-        models_dict: {nombre_modelo: modelo_entrenado}
-        X_test: features del conjunto de test (ya escaladas)
-        y_test: etiquetas verdaderas del test
+    Parámetros
+    ----------
+    models_dict : dict
+        Diccionario {nombre_modelo: modelo_entrenado}.
+    X_test : array
+        Features del conjunto de test (ya escaladas).
+    y_test : array
+        Etiquetas verdaderas del test.
+
+    Retorna
+    -------
+    None
+        Muestra el gráfico directamente.
     """
     fig, ax = plt.subplots(figsize=(8, 6))
     for nombre, modelo in models_dict.items():

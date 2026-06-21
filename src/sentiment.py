@@ -5,13 +5,24 @@ from tqdm import tqdm
 
 
 def load_or_run_finbert(news_df: pd.DataFrame, cache_path: str) -> pd.DataFrame:
-    """Punto de entrada principal para el pipeline de sentiment.
+    """
+    Punto de entrada principal para el pipeline de sentiment.
 
     Si sentiment_cache.csv existe y tiene la misma cantidad de filas que news_df,
-    lo carga directamente sin volver a correr FinBERT.
-    Si no, corre FinBERT sobre todos los titulares y guarda el resultado en cache_path.
+    lo carga directamente sin volver a correr FinBERT. Si no, corre FinBERT sobre
+    todos los titulares y guarda el resultado en cache_path.
 
-    Retorna DataFrame con columnas: Title, Date, CP, sentiment_label, sentiment_score.
+    Parámetros
+    ----------
+    news_df : pd.DataFrame
+        Dataset de noticias, salida de data_loader.load_news().
+    cache_path : str
+        Ruta donde se guarda/lee el cache de resultados de FinBERT.
+
+    Retorna
+    -------
+    pd.DataFrame
+        Columnas: Title, Date, CP, sentiment_label, sentiment_score.
     """
     if os.path.exists(cache_path):
         cache = pd.read_csv(cache_path, parse_dates=["Date"])
@@ -35,19 +46,26 @@ def load_or_run_finbert(news_df: pd.DataFrame, cache_path: str) -> pd.DataFrame:
 
 
 def run_finbert_batch(texts: list, batch_size: int = 32, device: str = "mps") -> list:
-    """Corre ProsusAI/finbert sobre una lista de textos en batches.
+    """
+    Corre ProsusAI/finbert sobre una lista de textos en batches.
 
     Usa el backend MPS de PyTorch (GPU de Apple Silicon M-series).
     Fallback automático a CPU si MPS no está disponible.
 
-    Args:
-        texts: lista de strings (titulares de noticias)
-        batch_size: tamaño del batch. 32 es óptimo para M5 Pro con MPS.
-        device: 'mps' (Apple Silicon), 'cuda' (NVIDIA), o 'cpu'
+    Parámetros
+    ----------
+    texts : list
+        Lista de strings (titulares de noticias).
+    batch_size : int
+        Tamaño del batch. 32 es óptimo para M5 Pro con MPS.
+    device : str
+        'mps' (Apple Silicon), 'cuda' (NVIDIA), o 'cpu'.
 
-    Retorna lista de dicts con keys:
-        - 'label': 'positive', 'negative', o 'neutral'
-        - 'score': confianza del modelo (float, 0-1)
+    Retorna
+    -------
+    list
+        Lista de dicts con keys 'label' ('positive'/'negative'/'neutral')
+        y 'score' (confianza del modelo, float entre 0 y 1).
     """
     import torch
     from transformers import pipeline
@@ -79,22 +97,31 @@ def run_finbert_batch(texts: list, batch_size: int = 32, device: str = "mps") ->
 
 
 def aggregate_daily_sentiment(raw_df: pd.DataFrame) -> pd.DataFrame:
-    """Agrega scores de FinBERT a nivel diario y shiftea 1 día para evitar leakage.
+    """
+    Agrega scores de FinBERT a nivel diario y shiftea 1 día para evitar leakage.
 
     Convierte los labels a score numérico firmado:
         positive  → +score
         negative  → -score
         neutral   → 0
 
-    Agrega por fecha:
-        sentiment_mean: promedio del score firmado (señal direccional)
-        sentiment_std:  desvío estándar (dispersión/incertidumbre del día)
-        news_count:     cantidad de noticias del día
+    Agrega por fecha: sentiment_mean (promedio del score firmado, señal
+    direccional), sentiment_std (desvío estándar, dispersión/incertidumbre
+    del día) y news_count (cantidad de noticias del día).
 
     CRÍTICO: aplica .shift(1) antes de retornar para que el modelo reciba el
     sentiment de ayer, no el de hoy. Esto evita data leakage temporal.
 
-    Retorna DataFrame con índice DatetimeIndex.
+    Parámetros
+    ----------
+    raw_df : pd.DataFrame
+        Salida de load_or_run_finbert(), con columnas Date, sentiment_label
+        y sentiment_score.
+
+    Retorna
+    -------
+    pd.DataFrame
+        Índice DatetimeIndex, columnas: sentiment_mean, sentiment_std, news_count.
     """
     df = raw_df.copy()
 

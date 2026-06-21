@@ -8,11 +8,21 @@ load_dotenv()
 
 
 def load_sp500(raw_dir: str) -> pd.DataFrame:
-    """Carga precios S&P 500 desde data/raw/sp500_raw.csv.
+    """
+    Carga precios del S&P 500 desde data/raw/sp500_raw.csv.
 
     Maneja el formato especial que genera yfinance al guardar con to_csv():
     las primeras 3 filas son encabezados del multi-index, no datos.
-    Retorna DataFrame con índice DatetimeIndex y columnas: Close, High, Low, Open, Volume.
+
+    Parámetros
+    ----------
+    raw_dir : str
+        Ruta al directorio data/raw/.
+
+    Retorna
+    -------
+    pd.DataFrame
+        Índice DatetimeIndex, columnas: Close, High, Low, Open, Volume.
     """
     path = os.path.join(raw_dir, "sp500_raw.csv")
     df = pd.read_csv(
@@ -29,10 +39,20 @@ def load_sp500(raw_dir: str) -> pd.DataFrame:
 
 
 def load_macro(raw_dir: str) -> pd.DataFrame:
-    """Carga indicadores macro de FRED desde data/raw/macro_fred.csv.
+    """
+    Carga indicadores macro de FRED desde data/raw/macro_fred.csv.
 
     No aplica forward fill — eso lo hace features.py al alinear con días de trading.
-    Retorna DataFrame con índice DatetimeIndex y columnas: vix, t10y2y, fedfunds, cpi, unrate.
+
+    Parámetros
+    ----------
+    raw_dir : str
+        Ruta al directorio data/raw/.
+
+    Retorna
+    -------
+    pd.DataFrame
+        Índice DatetimeIndex, columnas: vix, t10y2y, fedfunds, cpi, unrate.
     """
     path = os.path.join(raw_dir, "macro_fred.csv")
     df = pd.read_csv(path, index_col=0, parse_dates=True)
@@ -42,10 +62,20 @@ def load_macro(raw_dir: str) -> pd.DataFrame:
 
 
 def load_news(raw_dir: str) -> pd.DataFrame:
-    """Carga el dataset de noticias desde data/raw/sp500_news.csv.
+    """
+    Carga el dataset de noticias desde data/raw/sp500_news.csv.
 
-    Retorna DataFrame con columnas: Title (str), Date (datetime), CP (float).
-    19,127 noticias, 3,507 fechas únicas, cobertura 2008-2024.
+    19,127 noticias, 3,507 fechas únicas, cobertura 2008-01-02 a 2024-03-04.
+
+    Parámetros
+    ----------
+    raw_dir : str
+        Ruta al directorio data/raw/.
+
+    Retorna
+    -------
+    pd.DataFrame
+        Columnas: Title (str), Date (datetime), CP (float).
     """
     path = os.path.join(raw_dir, "sp500_news.csv")
     df = pd.read_csv(path, parse_dates=["Date"])
@@ -53,14 +83,25 @@ def load_news(raw_dir: str) -> pd.DataFrame:
 
 
 def download_sp500(start: str, end: str, save_path: str) -> pd.DataFrame:
-    """Descarga precios del S&P 500 via yfinance y guarda en save_path.
+    """
+    Descarga precios del S&P 500 vía yfinance y guarda en save_path.
 
     Si el archivo ya existe, lo carga sin descargar. Útil para no re-descargar
     en cada ejecución y para reproducibilidad offline.
-    Args:
-        start: fecha inicio en formato 'YYYY-MM-DD'
-        end: fecha fin en formato 'YYYY-MM-DD'
-        save_path: ruta absoluta donde guardar el CSV
+
+    Parámetros
+    ----------
+    start : str
+        Fecha de inicio en formato 'YYYY-MM-DD'.
+    end : str
+        Fecha de fin en formato 'YYYY-MM-DD'.
+    save_path : str
+        Ruta absoluta donde guardar el CSV.
+
+    Retorna
+    -------
+    pd.DataFrame
+        Mismo formato que load_sp500().
     """
     if os.path.exists(save_path):
         print(f"[data_loader] sp500_raw.csv ya existe en {save_path}, se carga sin descargar.")
@@ -75,11 +116,27 @@ def download_sp500(start: str, end: str, save_path: str) -> pd.DataFrame:
 
 def download_macro(start: str, end: str, save_path: str,
                    api_key: str = None) -> pd.DataFrame:
-    """Descarga indicadores de FRED via fredapi y guarda en save_path.
+    """
+    Descarga indicadores de FRED vía fredapi y guarda en save_path.
 
     Si el archivo ya existe, lo carga sin descargar.
-    Lee FRED_API_KEY desde .env si api_key no se pasa explícitamente.
     Series descargadas: VIXCLS, T10Y2Y, FEDFUNDS, CPIAUCSL, UNRATE.
+
+    Parámetros
+    ----------
+    start : str
+        Fecha de inicio en formato 'YYYY-MM-DD'.
+    end : str
+        Fecha de fin en formato 'YYYY-MM-DD'.
+    save_path : str
+        Ruta absoluta donde guardar el CSV.
+    api_key : str, opcional
+        Clave de FRED. Si no se pasa, se lee FRED_API_KEY desde .env.
+
+    Retorna
+    -------
+    pd.DataFrame
+        Mismo formato que load_macro().
     """
     if os.path.exists(save_path):
         print(f"[data_loader] macro_fred.csv ya existe en {save_path}, se carga sin descargar.")
