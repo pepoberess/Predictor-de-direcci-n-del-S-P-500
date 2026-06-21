@@ -82,6 +82,90 @@ def load_news(raw_dir: str) -> pd.DataFrame:
     return df
 
 
+def load_sp500_extended(raw_dir: str) -> pd.DataFrame:
+    """
+    Carga precios del S&P 500: original + extensión (2024-2026), concatenados.
+
+    No incluye sp500_raw_production.csv — ese set queda reservado fuera del
+    pool de modelado, para demostrar uso en vivo del modelo.
+
+    Parámetros
+    ----------
+    raw_dir : str
+        Ruta al directorio data/raw/.
+
+    Retorna
+    -------
+    pd.DataFrame
+        Índice DatetimeIndex, columnas: Close, High, Low, Open, Volume.
+    """
+    original = load_sp500(raw_dir)
+    path_ext = os.path.join(raw_dir, "sp500_raw_extension.csv")
+    extension = pd.read_csv(path_ext, index_col="Date", parse_dates=True)
+
+    combinado = pd.concat([original, extension])
+    combinado = combinado[~combinado.index.duplicated(keep="last")]
+    return combinado.sort_index()
+
+
+def load_macro_extended(raw_dir: str) -> pd.DataFrame:
+    """
+    Carga indicadores macro de FRED: original + extensión (2024-2026), concatenados.
+
+    No incluye macro_fred_production.csv — ese set queda reservado fuera del
+    pool de modelado, para demostrar uso en vivo del modelo.
+
+    Parámetros
+    ----------
+    raw_dir : str
+        Ruta al directorio data/raw/.
+
+    Retorna
+    -------
+    pd.DataFrame
+        Índice DatetimeIndex, columnas: vix, t10y2y, fedfunds, cpi, unrate,
+        GPRD, GPRD_ACT, GPRD_THREAT.
+    """
+    original = load_macro(raw_dir)
+    path_ext = os.path.join(raw_dir, "macro_fred_extension.csv")
+    extension = pd.read_csv(path_ext, index_col="Date", parse_dates=True)
+
+    combinado = pd.concat([original, extension])
+    combinado = combinado[~combinado.index.duplicated(keep="last")]
+    return combinado.sort_index()
+
+
+def load_news_extended(raw_dir: str) -> pd.DataFrame:
+    """
+    Carga noticias: original + extensión (2024-2026), concatenadas.
+
+    La columna CP se descarta (no se usa en el pipeline, era redundante con
+    sp500_raw.csv, y la extensión nunca la tuvo). Hay 1 día de solapamiento
+    real entre original y extensión (2024-03-04) con titulares de fuentes
+    distintas — se conservan ambos, solo se dedupea por (Title, Date) exacto.
+
+    No incluye sp500_news_production.csv — ese set queda reservado fuera del
+    pool de modelado, para demostrar uso en vivo del modelo.
+
+    Parámetros
+    ----------
+    raw_dir : str
+        Ruta al directorio data/raw/.
+
+    Retorna
+    -------
+    pd.DataFrame
+        Columnas: Title (str), Date (datetime), ordenado por fecha.
+    """
+    original = load_news(raw_dir).drop(columns=["CP"])
+    path_ext = os.path.join(raw_dir, "sp500_news_extension.csv")
+    extension = pd.read_csv(path_ext, parse_dates=["Date"])
+
+    combinado = pd.concat([original, extension], ignore_index=True)
+    combinado = combinado.drop_duplicates(subset=["Title", "Date"])
+    return combinado.sort_values("Date").reset_index(drop=True)
+
+
 def download_sp500(start: str, end: str, save_path: str) -> pd.DataFrame:
     """
     Descarga precios del S&P 500 vía yfinance y guarda en save_path.

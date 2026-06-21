@@ -145,33 +145,60 @@ def add_macro_features(prices: pd.DataFrame, macro: pd.DataFrame) -> pd.DataFram
     """
     Hace merge de precios con indicadores macro y aplica forward fill.
 
-    VIX y T10Y2Y son series diarias con pocos huecos (fines de semana/feriados).
+    VIX, T10Y2Y y GPR son series diarias con pocos huecos (fines de semana/feriados).
     FEDFUNDS, CPI y UNRATE son mensuales — el forward fill las lleva a frecuencia diaria.
     Solo se conservan las fechas que aparecen en el índice de prices (días de trading).
 
-    PENDIENTE (ver memoria de proyecto, hallado 20 jun 2026): el forward fill de
-    CPI/UNRATE usa la fecha de *observación*, no la de *publicación* real (BLS
-    publica un mes ~13 días después de terminado). Esto introduce look-ahead bias.
-    No se corrige acá todavía — falta decidir el ajuste exacto junto con las
-    fechas del split.
+    CRÍTICO (corregido 21 jun 2026, ver memoria de proyecto): CPI y UNRATE se
+    shiftean a su fecha real de *publicación* antes del ffill, no la fecha de
+    *observación* que trae el archivo (ej. el dato de marzo viene fechado
+    2024-03-01, pero el BLS lo publica recién a mediados de ABRIL, el mes
+    siguiente). Sin este shift el modelo vería el dato antes de que existiera
+    públicamente (look-ahead bias).
+    CPI: día 13 del mes siguiente al observado.
+    UNRATE: primer viernes del mes siguiente al observado.
+    FEDFUNDS no se shiftea — es la tasa efectiva diaria, conocida casi sin demora.
 
     Parámetros
     ----------
     prices : pd.DataFrame
         DataFrame de precios con índice DatetimeIndex (días de trading).
     macro : pd.DataFrame
-        DataFrame de indicadores macro, salida de data_loader.load_macro().
+        DataFrame de indicadores macro, salida de data_loader.load_macro_extended().
 
     Retorna
     -------
     pd.DataFrame
         prices con las columnas de macro agregadas y forward-filled.
     """
-    # Reindexar macro al rango de fechas de prices, luego forward fill
-    macro_reindexed = macro.reindex(prices.index, method=None)
-    macro_ffill = macro_reindexed.ffill()
+    macro = macro.copy()
 
-    merged = prices.join(macro_ffill, how="left")
+    def _dia_13_mes_siguiente(fecha):
+        return (fecha + pd.DateOffset(months=1)).replace(day=13)
+
+    def _primer_viernes_mes_siguiente(fecha):
+        primero = (fecha + pd.DateOffset(months=1)).replace(day=1)
+        dias_hasta_viernes = (4 - primero.weekday()) % 7  # weekday(): lunes=0 ... viernes=4
+        return primero + pd.Timedelta(days=dias_hasta_viernes)
+
+    cpi_publicado = macro["cpi"].dropna()
+    cpi_publicado.index = cpi_publicado.index.map(_dia_13_mes_siguiente)
+
+    unrate_publicado = macro["unrate"].dropna()
+    unrate_publicado.index = unrate_publicado.index.map(_primer_viernes_mes_siguiente)
+
+    macro = macro.drop(columns=["cpi", "unrate"])
+    macro = macro.join(cpi_publicado, how="outer").join(unrate_publicado, how="outer")
+
+    # Reindexar macro sobre la UNION de calendarios (no solo prices.index):
+    # si la fecha de publicación shifteada cae en fin de semana/feriado,
+    # reindexar directo contra prices.index la descartaría antes de poder
+    # propagarla con ffill al próximo día de trading.
+    calendario_completo = macro.index.union(prices.index)
+    macro_reindexed = macro.reindex(calendario_completo).ffill()
+    macro_reindexed = macro_reindexed.reindex(prices.index)
+
+    merged = prices.join(macro_reindexed, how="left")
     return merged
 
 

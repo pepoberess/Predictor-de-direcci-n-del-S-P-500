@@ -11,6 +11,7 @@ from dateutil.relativedelta import relativedelta
 CDX_API = "https://web.archive.org/cdx/search/cdx"
 WAYBACK_BASE = "https://web.archive.org/web"
 TARGET_URL = "https://finance.yahoo.com/news/"
+FALLBACK_URL = "https://finance.yahoo.com/"
 
 START_DATE = "2024-03-04"
 PRODUCTION_MONTHS = 6
@@ -19,14 +20,31 @@ PHRASE_KEYWORDS = [
     "s&p 500", "s&p500", "dow jones", "stock market", "wall street", "wall st",
     "federal reserve", "interest rate", "jobs report", "treasury yield",
     "bond yield", "market rally", "market sell-off", "earnings season",
-    "rate cut", "rate hike",
+    "rate cut", "rate hike", "treasury secretary", "retail sales",
+    "industrial production",
 ]
 WORD_KEYWORDS = [
-    "dow", "stocks?", "markets?", "fed", "nasdaq", "tariff", "recession",
-    "unemployment", "inflation", "gdp",
+    "dow", "stocks?", "markets?", "fed", "nasdaq", "tariffs?", "recession",
+    "unemployment", "inflation", "gdp", "powell", "breadth", "index(es)?",
+    "indices", "valuations?", "correction",
 ]
 WORD_KEYWORD_PATTERN = re.compile(r"\b(" + "|".join(WORD_KEYWORDS) + r")\b")
 DAILY_CAP = 20
+
+# Excluye boilerplate de "rate roundup" personal-finance que matchea las keywords
+# de arriba por casualidad (ej. "market" en "money market account") pero no tiene
+# nada que ver con la dirección del S&P 500. Validado contra 8,040 titulares ya
+# scrapeados: 431 filas (5.4%), sin falsos positivos en muestra de 20 al azar.
+EXCLUDE_PATTERN = re.compile(
+    r"money market account rates"
+    r"|savings (interest|account) rates today"
+    r"|best [a-z-]* ?savings [a-z ]*rates today"
+    r"|mortgage (and refinance )?rates? today"
+    r"|real estate market trends in"
+    r"|\bdow inc\b"
+    r"|nyse: ?dow\b",
+    re.IGNORECASE,
+)
 
 SCRAPING_DIR = os.path.dirname(os.path.abspath(__file__))
 CHECKPOINT_PATH = os.path.join(SCRAPING_DIR, "checkpoint", "raw_headlines.jsonl")
@@ -45,9 +63,9 @@ H3_FALLBACK_PATTERN = re.compile(r"<h3[^>]*>([^<]+)</h3>")
 TICKER_PREFIX_PATTERN = re.compile(r"(nasdaq|nyse):")
 
 
-def list_snapshots(date_from: str, date_to: str) -> list[tuple[str, str]]:
+def list_snapshots(url: str, date_from: str, date_to: str) -> list[tuple[str, str]]:
     params = {
-        "url": TARGET_URL,
+        "url": url,
         "from": date_from.replace("-", ""),
         "to": date_to.replace("-", ""),
         "output": "json",
@@ -66,11 +84,24 @@ def list_snapshots(date_from: str, date_to: str) -> list[tuple[str, str]]:
     raise RuntimeError("No se pudo listar snapshots tras varios reintentos.")
 
 
-def fetch_snapshot_html(timestamp: str) -> str | None:
-    url = f"{WAYBACK_BASE}/{timestamp}/{TARGET_URL}"
+def snapshot_for_date(url: str, date_str: str) -> str | None:
+    """Busca un único snapshot puntual de `url` para `date_str` (YYYYMMDD).
+
+    A diferencia de list_snapshots(), no debe interrumpir todo el scraping
+    si falla — es una búsqueda de respaldo, no la lista principal.
+    """
+    try:
+        snapshots = list_snapshots(url, date_str, date_str)
+    except RuntimeError:
+        return None
+    return snapshots[0][1] if snapshots else None
+
+
+def fetch_snapshot_html(url: str, timestamp: str) -> str | None:
+    full_url = f"{WAYBACK_BASE}/{timestamp}/{url}"
     for attempt in range(MAX_RETRIES):
         try:
-            resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=60)
+            resp = requests.get(full_url, headers={"User-Agent": USER_AGENT}, timeout=60)
         except requests.exceptions.RequestException:
             time.sleep(5 * (attempt + 1))
             continue
@@ -80,7 +111,6 @@ def fetch_snapshot_html(timestamp: str) -> str | None:
             time.sleep(5 * (attempt + 1))
             continue
         return None
-    return None
     return None
 
 
@@ -98,6 +128,8 @@ def extract_titles(html: str) -> list[str]:
 
 
 def is_relevant(title: str) -> bool:
+    if EXCLUDE_PATTERN.search(title):
+        return False
     lowered = TICKER_PREFIX_PATTERN.sub("", title.lower())
     if any(kw in lowered for kw in PHRASE_KEYWORDS):
         return True
@@ -139,19 +171,31 @@ def append_checkpoint(date_str: str, titles: list[str]) -> None:
 
 def scrape(date_from: str, date_to: str) -> None:
     done = load_checkpoint()
-    snapshots = list_snapshots(date_from, date_to)
-    pending = [(d, ts) for d, ts in snapshots if d not in done]
-    print(f"[scrape] {len(snapshots)} días con snapshot, {len(pending)} pendientes de bajar.")
+    snapshots = list_snapshots(TARGET_URL, date_from, date_to)
+    # Reprocesar también los días ya en checkpoint pero vacíos (0 titulares):
+    # ahí es donde el fallback puede recuperar algo que antes no se intentó.
+    pending = [(d, ts) for d, ts in snapshots if d not in done or len(done[d]) == 0]
+    print(f"[scrape] {len(snapshots)} días con snapshot, {len(pending)} pendientes de procesar.")
 
+    n_fallback = 0
     for date_str, timestamp in pending:
-        html = fetch_snapshot_html(timestamp)
-        if html is None:
-            print(f"[scrape] {date_str}: fallo al descargar tras reintentos, se omite.")
-            continue
-        titles = filter_relevant(extract_titles(html))
+        html = fetch_snapshot_html(TARGET_URL, timestamp)
+        titles = filter_relevant(extract_titles(html)) if html else []
+
+        if not titles:
+            fallback_ts = snapshot_for_date(FALLBACK_URL, date_str)
+            if fallback_ts:
+                fallback_html = fetch_snapshot_html(FALLBACK_URL, fallback_ts)
+                if fallback_html:
+                    titles = filter_relevant(extract_titles(fallback_html))
+                    if titles:
+                        n_fallback += 1
+
         append_checkpoint(date_str, titles)
         print(f"[scrape] {date_str}: {len(titles)} titulares relevantes.")
         time.sleep(REQUEST_DELAY_SECONDS)
+
+    print(f"[scrape] Días recuperados vía fallback ({FALLBACK_URL}): {n_fallback}")
 
 
 def dedupe_across_days(checkpoint: dict[str, list[str]]) -> dict[str, str]:
