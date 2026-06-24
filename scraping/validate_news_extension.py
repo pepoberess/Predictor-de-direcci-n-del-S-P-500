@@ -121,24 +121,6 @@ def distribucion_finbert(orig: pd.DataFrame, ext: pd.DataFrame) -> None:
     print(f"\nConfianza promedio - Original:  {raw_orig['sentiment_score'].mean():.3f}")
     print(f"Confianza promedio - Extension: {raw_ext['sentiment_score'].mean():.3f}")
 
-    tabla_contingencia = pd.DataFrame({
-        "original": raw_orig["sentiment_label"].value_counts(),
-        "extension": raw_ext["sentiment_label"].value_counts(),
-    }).fillna(0)
-
-    chi2, p, dof, _ = chi2_contingency(tabla_contingencia.T)
-    n = tabla_contingencia.values.sum()
-    cramers_v = np.sqrt(chi2 / (n * (min(tabla_contingencia.shape) - 1)))
-
-    print(f"\nTest chi-cuadrado (H0: misma distribucion de labels):")
-    print(f"  chi2 = {chi2:.2f}, p-value = {p:.6f}")
-    print(f"  Cramer's V (tamano de efecto, 0=nulo, 1=maximo) = {cramers_v:.4f}")
-    print(f"\n  Nota: con miles de filas el chi-cuadrado casi siempre da p < 0.05")
-    print(f"  aunque la diferencia practica sea chica. Cramer's V es la medida")
-    print(f"  que importa para decidir si el efecto es relevante (>0.1 = chico,")
-    print(f"  >0.3 = moderado, >0.5 = grande).")
-
-
 def main():
     orig, ext = cargar_datasets()
     estadisticas_descriptivas(orig, ext)
