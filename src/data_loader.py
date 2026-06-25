@@ -77,62 +77,9 @@ def load_news(raw_dir: str) -> pd.DataFrame:
     pd.DataFrame
         Columnas: Title (str), Date (datetime), CP (float).
     """
-    path = os.path.join(raw_dir, "sp500_news.csv")
+    path = os.path.join(raw_dir, "sp500_news_full.csv")
     df = pd.read_csv(path, parse_dates=["Date"])
     return df
-
-
-def load_sp500_extended(raw_dir: str) -> pd.DataFrame:
-    """
-    Carga precios del S&P 500: original + extensión (2024-2026), concatenados.
-
-    No incluye sp500_raw_production.csv — ese set queda reservado fuera del
-    pool de modelado, para demostrar uso en vivo del modelo.
-
-    Parámetros
-    ----------
-    raw_dir : str
-        Ruta al directorio data/raw/.
-
-    Retorna
-    -------
-    pd.DataFrame
-        Índice DatetimeIndex, columnas: Close, High, Low, Open, Volume.
-    """
-    original = load_sp500(raw_dir)
-    path_ext = os.path.join(raw_dir, "sp500_raw_extension.csv")
-    extension = pd.read_csv(path_ext, index_col="Date", parse_dates=True)
-
-    combinado = pd.concat([original, extension])
-    combinado = combinado[~combinado.index.duplicated(keep="last")]
-    return combinado.sort_index()
-
-
-def load_macro_extended(raw_dir: str) -> pd.DataFrame:
-    """
-    Carga indicadores macro de FRED: original + extensión (2024-2026), concatenados.
-
-    No incluye macro_fred_production.csv — ese set queda reservado fuera del
-    pool de modelado, para demostrar uso en vivo del modelo.
-
-    Parámetros
-    ----------
-    raw_dir : str
-        Ruta al directorio data/raw/.
-
-    Retorna
-    -------
-    pd.DataFrame
-        Índice DatetimeIndex, columnas: vix, t10y2y, fedfunds, cpi, unrate,
-        GPRD, GPRD_ACT, GPRD_THREAT.
-    """
-    original = load_macro(raw_dir)
-    path_ext = os.path.join(raw_dir, "macro_fred_extension.csv")
-    extension = pd.read_csv(path_ext, index_col="Date", parse_dates=True)
-
-    combinado = pd.concat([original, extension])
-    combinado = combinado[~combinado.index.duplicated(keep="last")]
-    return combinado.sort_index()
 
 
 def load_news_extended(raw_dir: str) -> pd.DataFrame:
