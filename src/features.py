@@ -131,12 +131,12 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     close = df["Close"]
     volume = df["Volume"]
 
-    df["RSI_14"]       = _rsi(close, 14)
-    df["MACD"]         = _macd(close)
-    df["BB_position"]  = _bb_position(close)
-    df["return_1d"]    = close.pct_change(1)
-    df["return_5d"]    = close.pct_change(5)
-    df["volume_change"] = volume.pct_change(1)
+    df["RSI_14"]        = _rsi(close, 14)
+    df["MACD"]          = _macd(close)
+    df["BB_position"]   = _bb_position(close)
+    df["return_1d"]     = close.pct_change(1)
+    df["return_5d"]     = close.pct_change(5)
+    df["volume_change"] = volume.pct_change(1).replace([np.inf, -np.inf], np.nan)
 
     return df
 
@@ -145,19 +145,18 @@ def add_macro_features(prices: pd.DataFrame, macro: pd.DataFrame) -> pd.DataFram
     """
     Hace merge de precios con indicadores macro y aplica forward fill.
 
-    VIX, T10Y2Y y GPR son series diarias con pocos huecos (fines de semana/feriados).
-    FEDFUNDS, CPI y UNRATE son mensuales — el forward fill las lleva a frecuencia diaria.
-    Solo se conservan las fechas que aparecen en el índice de prices (días de trading).
+    VIX, T10Y2Y y FEDFUNDS ya vienen forward-filled desde download_macro().
+    Esta función se encarga únicamente de shiftear CPI y UNRATE a su fecha real
+    de publicación (look-ahead bias fix) y de hacer ffill de esas dos series
+    tras el shift (quedan sparse). Solo se conservan días de trading.
 
-    CRÍTICO (corregido 21 jun 2026, ver memoria de proyecto): CPI y UNRATE se
-    shiftean a su fecha real de *publicación* antes del ffill, no la fecha de
-    *observación* que trae el archivo (ej. el dato de marzo viene fechado
-    2024-03-01, pero el BLS lo publica recién a mediados de ABRIL, el mes
-    siguiente). Sin este shift el modelo vería el dato antes de que existiera
-    públicamente (look-ahead bias).
+    CRÍTICO: CPI y UNRATE se shiftean a su fecha real de *publicación*, no la
+    fecha de *observación* que trae el archivo (ej. el dato de marzo viene fechado
+    2024-03-01, pero el BLS lo publica recién a mediados de ABRIL).
+    Sin este shift el modelo vería el dato antes de que existiera públicamente.
     CPI: día 13 del mes siguiente al observado.
     UNRATE: primer viernes del mes siguiente al observado.
-    FEDFUNDS no se shiftea — es la tasa efectiva diaria, conocida casi sin demora.
+    FEDFUNDS no se shiftea — es la tasa efectiva, conocida casi sin demora.
 
     Parámetros
     ----------
@@ -181,19 +180,19 @@ def add_macro_features(prices: pd.DataFrame, macro: pd.DataFrame) -> pd.DataFram
         dias_hasta_viernes = (4 - primero.weekday()) % 7  # weekday(): lunes=0 ... viernes=4
         return primero + pd.Timedelta(days=dias_hasta_viernes)
 
-    cpi_publicado = macro["cpi"].dropna()
+    # resample("MS") extrae la observación del 1ro de cada mes sin depender de nulls:
+    # funciona igual si CPI/UNRATE vienen sparse (raw FRED) o ya ffilled (download_macro).
+    cpi_publicado = macro["cpi"].resample("MS").first().dropna()
     cpi_publicado.index = cpi_publicado.index.map(_dia_13_mes_siguiente)
 
-    unrate_publicado = macro["unrate"].dropna()
+    unrate_publicado = macro["unrate"].resample("MS").first().dropna()
     unrate_publicado.index = unrate_publicado.index.map(_primer_viernes_mes_siguiente)
 
     macro = macro.drop(columns=["cpi", "unrate"])
     macro = macro.join(cpi_publicado, how="outer").join(unrate_publicado, how="outer")
 
-    # Reindexar macro sobre la UNION de calendarios (no solo prices.index):
-    # si la fecha de publicación shifteada cae en fin de semana/feriado,
-    # reindexar directo contra prices.index la descartaría antes de poder
-    # propagarla con ffill al próximo día de trading.
+    # ffill cubre CPI/UNRATE tras el shift (quedan sparse) y los huecos del outer join.
+    # vix, t10y2y y fedfunds ya vienen ffilled desde download_macro().
     calendario_completo = macro.index.union(prices.index)
     macro_reindexed = macro.reindex(calendario_completo).ffill()
     macro_reindexed = macro_reindexed.reindex(prices.index)

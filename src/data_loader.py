@@ -189,6 +189,12 @@ def download_macro(start: str, end: str, save_path: str,
     }
 
     df = pd.DataFrame(series)
+    # FEDFUNDS, CPI y UNRATE son mensuales: forward-fill para propagar el valor
+    # al resto del mes. Para T10Y2Y se hace ffill para cubrir feriados de bonos (Columbus Day,
+    # Veterans Day) donde Treasury cierra pero NYSE opera.
+    df[["t10y2y", "fedfunds", "cpi", "unrate"]] = (
+        df[["t10y2y", "fedfunds", "cpi", "unrate"]].ffill()
+    )
     df.index.name = "Date"
     df.to_csv(save_path)
     print(f"[data_loader] Guardado en {save_path} ({len(df):,} filas).")
