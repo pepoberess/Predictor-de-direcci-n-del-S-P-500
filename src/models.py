@@ -18,16 +18,9 @@ def temporal_split(
     target: str = "target",
 ) -> tuple:
     """
-    Split temporal sin shuffle: train 2008-2019, val 2020-2021, test 2022-2024.
+    Split temporal sin shuffle: train 2008-2023, val 2024, test 2025.
 
     El split es estrictamente por año para evitar cualquier forma de data leakage.
-
-    PENDIENTE — DECISIÓN A TOMAR CON EL COMPAÑERO: estas fechas (2008-2019 /
-    2020-2021 / 2022-2024) fueron una elección automática de una sesión anterior,
-    no una decisión consciente del grupo. Con la extensión del dataset de noticias
-    ya completada (ver memoria de proyecto), falta decidir las fechas reales del
-    split antes de usar esta función para entrenar. No se cambia la lógica acá
-    a propósito — solo se documenta que está pendiente.
 
     Parámetros
     ----------
@@ -44,9 +37,9 @@ def temporal_split(
     tuple
         (X_train, X_val, X_test, y_train, y_val, y_test)
     """
-    train = df[df.index.year <= 2019]
-    val   = df[(df.index.year >= 2020) & (df.index.year <= 2021)]
-    test  = df[df.index.year >= 2022]
+    train = df[df.index.year <= 2023]
+    val   = df[df.index.year == 2024]
+    test  = df[df.index.year >= 2025]
 
     X_train, y_train = train[features].values, train[target].values
     X_val,   y_val   = val[features].values,   val[target].values
