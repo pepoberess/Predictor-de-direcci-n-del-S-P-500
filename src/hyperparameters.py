@@ -5,6 +5,7 @@ import optuna
 from sklearn.metrics import roc_auc_score
 from sklearn.neural_network import MLPClassifier
 from xgboost import XGBClassifier
+from sklearn.preprocessing import StandardScaler
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
@@ -177,10 +178,61 @@ def walk_forward_bayesian_search_mlp(
     tuple
         (best_params dict, optuna.Study)
     """
-    raise NotImplementedError(
-        "Implementar el objetivo Optuna para MLP siguiendo el mismo patrón que "
-        "walk_forward_bayesian_search. Ver espacio de búsqueda en el docstring."
+    if val_years is None:
+        val_years = [2020, 2021, 2022, 2023, 2024]
+
+    def objective(trial):
+        hidden = trial.suggest_categorical(
+            "hidden_layer_sizes",
+            [(64,), (128, 64), (256, 128), (256, 128, 64)],
+        )
+        params = dict(
+            hidden_layer_sizes  = hidden,
+            activation          = trial.suggest_categorical("activation", ["relu", "tanh"]),
+            learning_rate_init  = trial.suggest_float("learning_rate_init", 1e-4, 1e-2, log=True),
+            alpha               = trial.suggest_float("alpha", 1e-5, 1e-1, log=True),
+            solver              = "adam",
+            max_iter            = 300,
+            early_stopping      = True,
+            validation_fraction = 0.1,
+            n_iter_no_change    = 15,
+            random_state        = 42,
+        )
+
+        fold_aucs = []
+        for val_year in val_years:
+            tr = df[df.index.year < val_year]
+            vl = df[df.index.year == val_year]
+
+            X_tr, y_tr = tr[features].values, tr[target].values
+            X_vl, y_vl = vl[features].values, vl[target].values
+
+            # StandardScaler fiteado solo en train de cada fold, igual que en producción
+            scaler = StandardScaler()
+            X_tr_s = scaler.fit_transform(X_tr)
+            X_vl_s = scaler.transform(X_vl)
+
+            model = MLPClassifier(**params)
+            model.fit(X_tr_s, y_tr)
+
+            fold_aucs.append(roc_auc_score(y_vl, model.predict_proba(X_vl_s)[:, 1]))
+
+        return float(np.mean(fold_aucs))
+
+    study = optuna.create_study(
+        direction="maximize",
+        sampler=optuna.samplers.TPESampler(seed=42),
     )
+    study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
+
+    best = study.best_params
+    print(f"\n[hyperparameters] Walk-forward Bayesian search MLP — {n_trials} trials, {len(val_years)} folds")
+    print(f"  Mejor AUC-CV promedio: {study.best_value:.4f}")
+    print(f"  Mejores parámetros:")
+    for k, v in best.items():
+        print(f"    {k:<22}: {round(v, 5) if isinstance(v, float) else v}")
+
+    return best, study
 
 
 def train_mlp_tuned(X_train, y_train, params: dict) -> MLPClassifier:
