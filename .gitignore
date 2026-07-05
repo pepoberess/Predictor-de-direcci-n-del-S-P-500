@@ -9,9 +9,6 @@ venv/
 .venv/
 env/
 
-# Archivos generados por el pipeline (se pueden reproducir corriendo los notebooks)
-data/processed/
-models/
 
 # macOS
 .DS_Store
