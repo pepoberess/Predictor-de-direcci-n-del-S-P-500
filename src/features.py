@@ -1,6 +1,8 @@
 import os
 import pandas as pd
 import numpy as np
+from io import BytesIO
+import requests
 
 
 def _rsi(close: pd.Series, period: int = 14) -> pd.Series:
@@ -138,7 +140,100 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["return_5d"]     = close.pct_change(5)
     df["volume_change"] = volume.pct_change(1).replace([np.inf, -np.inf], np.nan)
 
+
     return df
+
+
+def descargar_gpr(GPR_URL: str, GPR_COLS: list) -> pd.DataFrame:
+    """
+    Descarga el índice GPR diario (Caldara & Iacoviello) desde matteoiacoviello.com.
+
+    Parámetros
+    ----------
+    GPR_URL : str
+        URL del .xls con la serie diaria reciente.
+    GPR_COLS : list
+        Columnas de interés a extraer (ej. GPRD, GPRD_ACT, GPRD_THREAT).
+
+    Retorna
+    -------
+    pd.DataFrame
+        Índice DatetimeIndex (fecha de observación, sin shiftear), columnas GPR_COLS.
+    """
+    print(f"[gpr] Descargando {GPR_URL} ...")
+    resp = requests.get(GPR_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+    resp.raise_for_status()
+
+    df = pd.read_excel(BytesIO(resp.content))
+    df["date"] = pd.to_datetime(df["date"])
+    df = df[["date"] + GPR_COLS].set_index("date").sort_index()
+    return df
+
+
+def mergear_archivo(path: str, gpr: pd.DataFrame, GPR_COLS: list) -> None:
+    """
+    Mergea las columnas GPR en un CSV de macro existente (in-place).
+
+    Idempotente: si el archivo ya tiene columnas GPR de una corrida anterior,
+    las pisa en vez de duplicarlas.
+
+    Parámetros
+    ----------
+    path : str
+        Ruta al CSV de macro a enriquecer.
+    gpr : pd.DataFrame
+        Salida de descargar_gpr().
+    GPR_COLS : list
+        Nombres de las columnas GPR a mergear.
+    """
+    df = pd.read_csv(path, index_col=0, parse_dates=True)
+
+    if any(c in df.columns for c in GPR_COLS):
+        print(f"[gpr] {path} ya tiene columnas GPR, se sobreescriben.")
+        df = df.drop(columns=[c for c in GPR_COLS if c in df.columns])
+
+    antes = df.shape
+    df = df.join(gpr, how="left")
+    df.to_csv(path)
+
+    faltantes = df[GPR_COLS].isnull().any(axis=1).sum()
+    print(f"[gpr] {path}: {antes} -> {df.shape} | filas sin match GPR: {faltantes}")
+
+
+def add_geopolitical_risk_index_macro() -> None:
+    """
+    Agrega el índice GPR (Geopolitical Risk, Caldara & Iacoviello) como columnas nuevas
+    en los archivos de macro de FRED. GPR cubre 1985-hoy sin huecos.
+
+    Se llama una sola vez desde el notebook 00, después de download_macro().
+
+    Modifica (append de columnas, no de filas):
+        data/raw/macro_fred.csv
+        data/raw/macro_fred_production.csv
+
+    IMPORTANTE — sin shift todavía: esto agrega el valor RAW de GPR (fecha de
+    observación tal como viene en el .xls). La serie solo se actualiza los
+    lunes (ver scraping/A eliminar/test_gpr.py), así que antes de usar estas
+    columnas como features hace falta el mismo tipo de shift a fecha de
+    publicación real que ya tienen CPI/UNRATE en add_macro_features() — eso
+    todavía NO está implementado acá.
+    """
+    GPR_URL = "https://www.matteoiacoviello.com/gpr_files/data_gpr_daily_recent.xls"
+    GPR_COLS = ["GPRD", "GPRD_ACT", "GPRD_THREAT"]
+
+    RAW_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "raw")
+    TARGETS = [
+        os.path.join(RAW_DIR, "macro_fred.csv"),
+    ]
+
+    gpr = descargar_gpr(GPR_URL, GPR_COLS)
+    print(f"[gpr] GPR descargado: {gpr.shape} | {gpr.index[0].date()} -> {gpr.index[-1].date()}")
+
+    for path in TARGETS:
+        mergear_archivo(path, gpr, GPR_COLS)
+
+
+
 
 
 def add_macro_features(prices: pd.DataFrame, macro: pd.DataFrame) -> pd.DataFrame:
