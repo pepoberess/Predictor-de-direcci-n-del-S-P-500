@@ -7,78 +7,212 @@ import requests
 
 def _rsi(close: pd.Series, period: int = 14) -> pd.Series:
     """
-    Calcula el RSI con suavizado exponencial (método Wilder).
+    Calcula el RSI (Relative Strength Index) con el suavizado de Wilder,
+    día por día, siguiendo la fórmula original:
+
+        ganancia[t] = cambio[t] si cambio[t] > 0, si no 0
+        pérdida[t]  = -cambio[t] si cambio[t] < 0, si no 0
+
+        primer promedio (día `period`):
+            avg_gain = promedio simple de las primeras `period` ganancias
+            avg_loss = promedio simple de las primeras `period` pérdidas
+
+        días siguientes (suavizado de Wilder):
+            avg_gain[t] = (avg_gain[t-1] * (period - 1) + ganancia[t]) / period
+            avg_loss[t] = (avg_loss[t-1] * (period - 1) + pérdida[t]) / period
+
+        RS[t]  = avg_gain[t] / avg_loss[t]
+        RSI[t] = 100 - 100 / (1 + RS[t])
 
     Parámetros
     ----------
     close : pd.Series
         Serie de precios de cierre.
     period : int
-        Cantidad de períodos para el promedio exponencial.
+        Cantidad de días para el promedio (14 por defecto).
 
     Retorna
     -------
     pd.Series
-        RSI en el rango [0, 100].
+        RSI en el rango [0, 100]. NaN en los primeros `period` días.
     """
-    delta = close.diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    avg_gain = gain.ewm(com=period - 1, min_periods=period).mean()
-    avg_loss = loss.ewm(com=period - 1, min_periods=period).mean()
-    rs = avg_gain / avg_loss
-    return 100 - (100 / (1 + rs))
+    rsi = pd.Series(index=close.index, dtype=float)
+    ganancias_iniciales = []
+    perdidas_iniciales = []
+    avg_gain = None
+    avg_loss = None
+
+    for i in range(len(close)):
+        if i == 0:
+            rsi.iloc[i] = np.nan
+            continue
+
+        cambio = close.iloc[i] - close.iloc[i - 1]
+        ganancia = cambio if cambio > 0 else 0.0
+        perdida = -cambio if cambio < 0 else 0.0
+
+        if i < period:
+            # Todavía no hay suficientes días para el primer promedio
+            ganancias_iniciales.append(ganancia)
+            perdidas_iniciales.append(perdida)
+            rsi.iloc[i] = np.nan
+        elif i == period:
+            # Primer promedio: simple, sobre las primeras `period` ganancias/pérdidas
+            ganancias_iniciales.append(ganancia)
+            perdidas_iniciales.append(perdida)
+            avg_gain = sum(ganancias_iniciales) / period
+            avg_loss = sum(perdidas_iniciales) / period
+            rs = avg_gain / avg_loss if avg_loss != 0 else np.inf
+            rsi.iloc[i] = 100 - (100 / (1 + rs))
+        else:
+            # Suavizado de Wilder: pondera el promedio anterior con el valor de hoy
+            avg_gain = (avg_gain * (period - 1) + ganancia) / period
+            avg_loss = (avg_loss * (period - 1) + perdida) / period
+            rs = avg_gain / avg_loss if avg_loss != 0 else np.inf
+            rsi.iloc[i] = 100 - (100 / (1 + rs))
+
+    return rsi
 
 
 def _macd(close: pd.Series, fast: int = 12, slow: int = 26) -> pd.Series:
     """
-    Calcula el MACD: diferencia entre EMA rápida y EMA lenta.
+    Calcula el MACD: diferencia entre la EMA rápida y la EMA lenta del precio,
+    día por día, siguiendo la fórmula recursiva de la EMA:
+
+        alpha = 2 / (period + 1)
+        EMA[0] = close[0]
+        EMA[t] = alpha * close[t] + (1 - alpha) * EMA[t-1]
+
+        MACD[t] = EMA_rápida[t] - EMA_lenta[t]
 
     Parámetros
     ----------
     close : pd.Series
         Serie de precios de cierre.
     fast : int
-        Cantidad de períodos de la EMA rápida.
+        Cantidad de días de la EMA rápida (12 por defecto).
     slow : int
-        Cantidad de períodos de la EMA lenta.
+        Cantidad de días de la EMA lenta (26 por defecto).
 
     Retorna
     -------
     pd.Series
-        MACD (momentum tendencial).
+        MACD, en las mismas unidades que el precio (puntos, no %).
     """
-    ema_fast = close.ewm(span=fast, adjust=False).mean()
-    ema_slow = close.ewm(span=slow, adjust=False).mean()
-    return ema_fast - ema_slow
+    alpha_fast = 2 / (fast + 1)
+    alpha_slow = 2 / (slow + 1)
+
+    macd = pd.Series(index=close.index, dtype=float)
+    ema_fast = None
+    ema_slow = None
+
+    for i in range(len(close)):
+        precio = close.iloc[i]
+
+        if i == 0:
+            ema_fast = precio
+            ema_slow = precio
+        else:
+            ema_fast = alpha_fast * precio + (1 - alpha_fast) * ema_fast
+            ema_slow = alpha_slow * precio + (1 - alpha_slow) * ema_slow
+
+        macd.iloc[i] = ema_fast - ema_slow
+
+    return macd
 
 
 def _bb_position(close: pd.Series, period: int = 20) -> pd.Series:
     """
-    Calcula la posición relativa dentro de las Bandas de Bollinger.
+    Calcula la posición del precio dentro de las Bandas de Bollinger,
+    día por día, siguiendo la fórmula:
 
-    Resultado entre 0 y 1: 0 = en la banda inferior, 1 = en la banda superior.
-    Valores fuera de [0,1] son posibles en breakouts extremos.
+        promedio[t] = promedio de close en los últimos `period` días (incluido hoy)
+        desvío[t]   = desvío estándar muestral (ddof=1) de esa misma ventana
+        banda_superior[t] = promedio[t] + 2 * desvío[t]
+        banda_inferior[t] = promedio[t] - 2 * desvío[t]
+        posición[t] = (close[t] - banda_inferior[t]) / (banda_superior[t] - banda_inferior[t])
+
+    posición = 0 -> el precio está en la banda inferior
+    posición = 1 -> el precio está en la banda superior
+    Valores fuera de [0, 1] son posibles en movimientos muy bruscos (breakouts).
 
     Parámetros
     ----------
     close : pd.Series
         Serie de precios de cierre.
     period : int
-        Ventana para la media móvil y el desvío estándar.
+        Cantidad de días de la ventana (20 por defecto).
 
     Retorna
     -------
     pd.Series
-        Posición relativa dentro de las bandas.
+        Posición relativa dentro de las bandas. NaN en los primeros `period - 1` días.
     """
-    sma = close.rolling(period).mean()
-    std = close.rolling(period).std()
-    upper = sma + 2 * std
-    lower = sma - 2 * std
-    # Evitar división por cero en períodos de volatilidad cero (muy raro en S&P 500)
-    band_width = upper - lower
-    return (close - lower) / band_width.replace(0, np.nan)
+    posicion = pd.Series(index=close.index, dtype=float)
+
+    for i in range(len(close)):
+        if i < period - 1:
+            posicion.iloc[i] = np.nan
+            continue
+
+        ventana = close.iloc[i - period + 1 : i + 1]
+
+        promedio = sum(ventana) / period
+        varianza = sum((x - promedio) ** 2 for x in ventana) / (period - 1)
+        desvio = varianza ** 0.5
+
+        banda_superior = promedio + 2 * desvio
+        banda_inferior = promedio - 2 * desvio
+        ancho_banda = banda_superior - banda_inferior
+
+        if ancho_banda == 0:
+            # Volatilidad cero en la ventana: evita división por cero (muy raro en S&P 500)
+            posicion.iloc[i] = np.nan
+        else:
+            posicion.iloc[i] = (close.iloc[i] - banda_inferior) / ancho_banda
+
+    return posicion
+
+
+def _retorno(serie: pd.Series, dias: int) -> pd.Series:
+    """
+    Calcula el retorno porcentual entre el valor de hoy y el de hace días,
+    día por día:
+
+        retorno[t] = (serie[t] - serie[t - dias]) / serie[t - dias]
+
+    Se usa tanto para retornos de precio (return_1d, return_5d) como para la
+    variación de volumen (volume_change).
+
+    Parámetros
+    ----------
+    serie : pd.Series
+        Serie de valores (precio de cierre o volumen).
+    dias : int
+        Cantidad de días hacia atrás con los que comparar.
+
+    Retorna
+    -------
+    pd.Series
+        Retorno porcentual (ej. 0.01 = +1%). NaN en los primeros `dias` días.
+    """
+    retorno = pd.Series(index=serie.index, dtype=float)
+
+    for i in range(len(serie)):
+        if i < dias:
+            retorno.iloc[i] = np.nan
+            continue
+
+        valor_hoy = serie.iloc[i]
+        valor_anterior = serie.iloc[i - dias]
+
+        if valor_anterior == 0:
+            # Evita división por cero (irrelevante para Close, posible en teoría para Volume)
+            retorno.iloc[i] = np.nan
+        else:
+            retorno.iloc[i] = (valor_hoy - valor_anterior) / valor_anterior
+
+    return retorno
 
 
 def compute_target(df: pd.DataFrame) -> pd.DataFrame:
@@ -109,15 +243,21 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """
     Agrega 6 indicadores técnicos calculados sobre los precios del S&P 500.
 
+    Todos los indicadores están escritos a mano, día por día, siguiendo
+    directamente su fórmula matemática — sin usar atajos de pandas como
+    ewm(), rolling() o pct_change() — para que se entienda exactamente
+    qué cuenta se hace en cada paso (ver _rsi, _macd, _bb_position, _retorno).
+
     Features agregadas:
         RSI_14        : Relative Strength Index de 14 días (0-100)
-        MACD          : diferencia EMA-12 - EMA-26 (momentum tendencial)
+        MACD          : diferencia EMA-12 - EMA-26, en puntos (momentum tendencial)
         BB_position   : posición relativa dentro de Bandas de Bollinger de 20 días
-        return_1d     : retorno aritmético diario (Close_t / Close_{t-1} - 1)
-        return_5d     : retorno acumulado de los últimos 5 días de trading
+        return_1d     : retorno porcentual respecto al día anterior
+        return_5d     : retorno porcentual respecto a hace 5 días
         volume_change : variación porcentual del volumen respecto al día anterior
 
-    Las primeras filas tendrán NaN hasta que haya suficientes períodos (máx 26 días).
+    Las primeras filas tendrán NaN hasta que haya suficientes días de historia
+    (RSI_14: 14 días, BB_position: 19 días). MACD queda definido desde el primer día.
 
     Parámetros
     ----------
@@ -133,13 +273,12 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     close = df["Close"]
     volume = df["Volume"]
 
-    df["RSI_14"]        = _rsi(close, 14)
-    df["MACD"]          = _macd(close)
-    df["BB_position"]   = _bb_position(close)
-    df["return_1d"]     = close.pct_change(1)
-    df["return_5d"]     = close.pct_change(5)
-    df["volume_change"] = volume.pct_change(1).replace([np.inf, -np.inf], np.nan)
-
+    df["RSI_14"]        = _rsi(close, period=14)
+    df["MACD"]          = _macd(close, fast=12, slow=26)
+    df["BB_position"]   = _bb_position(close, period=20)
+    df["return_1d"]     = _retorno(close, dias=1)
+    df["return_5d"]     = _retorno(close, dias=5)
+    df["volume_change"] = _retorno(volume, dias=1)
 
     return df
 
@@ -241,16 +380,21 @@ def add_macro_features(prices: pd.DataFrame, macro: pd.DataFrame) -> pd.DataFram
     Hace merge de precios con indicadores macro y aplica forward fill.
 
     VIX, T10Y2Y y FEDFUNDS ya vienen forward-filled desde download_macro().
-    Esta función se encarga únicamente de shiftear CPI y UNRATE a su fecha real
-    de publicación (look-ahead bias fix) y de hacer ffill de esas dos series
-    tras el shift (quedan sparse). Solo se conservan días de trading.
+    Esta función shiftea a su fecha real de publicación (look-ahead bias fix)
+    CPI, UNRATE (mensuales) y GPRD/GPRD_ACT/GPRD_THREAT (semanales, si están
+    presentes en el DataFrame de macro), y hace ffill de todas ellas tras el
+    shift (quedan sparse). Solo se conservan días de trading.
 
-    CRÍTICO: CPI y UNRATE se shiftean a su fecha real de *publicación*, no la
+    CRÍTICO: cada serie se shiftea a su fecha real de *publicación*, no la
     fecha de *observación* que trae el archivo (ej. el dato de marzo viene fechado
     2024-03-01, pero el BLS lo publica recién a mediados de ABRIL).
     Sin este shift el modelo vería el dato antes de que existiera públicamente.
     CPI: día 13 del mes siguiente al observado.
     UNRATE: primer viernes del mes siguiente al observado.
+    GPRD/GPRD_ACT/GPRD_THREAT: próximo lunes después del día observado — la
+    serie diaria de Caldara & Iacoviello se actualiza en batch los lunes, no
+    en tiempo real día a día (ver scraping/A eliminar/test_gpr.py). Si el
+    DataFrame de macro no tiene estas columnas, se ignoran sin error.
     FEDFUNDS no se shiftea — es la tasa efectiva, conocida casi sin demora.
 
     Parámetros
@@ -275,6 +419,12 @@ def add_macro_features(prices: pd.DataFrame, macro: pd.DataFrame) -> pd.DataFram
         dias_hasta_viernes = (4 - primero.weekday()) % 7  # weekday(): lunes=0 ... viernes=4
         return primero + pd.Timedelta(days=dias_hasta_viernes)
 
+    def _proximo_lunes(fecha):
+        dias_hasta_lunes = (7 - fecha.weekday()) % 7  # weekday(): lunes=0 ... domingo=6
+        if dias_hasta_lunes == 0:
+            dias_hasta_lunes = 7  # si "fecha" ya es lunes, el próximo lunes es en 7 días
+        return fecha + pd.Timedelta(days=dias_hasta_lunes)
+
     # resample("MS") extrae la observación del 1ro de cada mes sin depender de nulls:
     # funciona igual si CPI/UNRATE vienen sparse (raw FRED) o ya ffilled (download_macro).
     cpi_publicado = macro["cpi"].resample("MS").first().dropna()
@@ -286,7 +436,23 @@ def add_macro_features(prices: pd.DataFrame, macro: pd.DataFrame) -> pd.DataFram
     macro = macro.drop(columns=["cpi", "unrate"])
     macro = macro.join(cpi_publicado, how="outer").join(unrate_publicado, how="outer")
 
-    # ffill cubre CPI/UNRATE tras el shift (quedan sparse) y los huecos del outer join.
+    # GPR (si está presente): es diaria, pero se publica en batch los lunes.
+    # Agrupamos cada día observado bajo su "próximo lunes" (fecha real de
+    # publicación) y nos quedamos con el último valor de cada semana — mismo
+    # criterio que CPI/UNRATE (un valor representativo por período), antes
+    # de shiftear.
+    GPR_COLS = ["GPRD", "GPRD_ACT", "GPRD_THREAT"]
+    gpr_cols_presentes = [c for c in GPR_COLS if c in macro.columns]
+
+    if gpr_cols_presentes:
+        gpr_crudo = macro[gpr_cols_presentes].dropna(how="all")
+        fechas_publicacion = gpr_crudo.index.map(_proximo_lunes)
+        gpr_publicado = gpr_crudo.groupby(fechas_publicacion).last()
+
+        macro = macro.drop(columns=gpr_cols_presentes)
+        macro = macro.join(gpr_publicado, how="outer")
+
+    # ffill cubre CPI/UNRATE/GPR tras el shift (quedan sparse) y los huecos del outer join.
     # vix, t10y2y y fedfunds ya vienen ffilled desde download_macro().
     calendario_completo = macro.index.union(prices.index)
     macro_reindexed = macro.reindex(calendario_completo).ffill()

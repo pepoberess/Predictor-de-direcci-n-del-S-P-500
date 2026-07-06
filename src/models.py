@@ -18,7 +18,7 @@ def temporal_split(
     target: str = "target",
 ) -> tuple:
     """
-    Split temporal sin shuffle: train 2008-2023, val 2024, test 2025.
+    Split temporal sin shuffle: train 2008-2023, val 2024, test 2025 - 2026.
 
     El split es estrictamente por año para evitar cualquier forma de data leakage.
 
@@ -221,14 +221,16 @@ def evaluate_model(model, X, y, split_name: str = "test") -> dict:
     dict
         Métricas calculadas, con la clave 'split' incluida.
     """
-    y_pred  = model.predict(X)
-    y_score = model.predict_proba(X)[:, 1]
+
+    y_prob = model.predict_proba(X)[:, 1]
+    umbral = 0.5
+    y_pred = (y_prob >= umbral).astype(int)
 
     metricas = {
         "split":     split_name,
         "accuracy":  round(accuracy_score(y, y_pred), 4),
         "f1":        round(f1_score(y, y_pred, average="weighted"), 4),
-        "roc_auc":   round(roc_auc_score(y, y_score), 4),
+        "roc_auc":   round(roc_auc_score(y, y_prob), 4),
         "precision": round(precision_score(y, y_pred, average="weighted", zero_division=0), 4),
         "recall":    round(recall_score(y, y_pred, average="weighted"), 4),
     }
