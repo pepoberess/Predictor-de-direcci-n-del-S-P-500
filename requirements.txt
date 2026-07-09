@@ -1,9 +1,10 @@
 # Datos
-yfinance>=0.2.40
-fredapi>=0.5.0
+yfinance>=1.4.0
+fredapi>=0.5.2
 pandas>=2.0.0
 numpy>=1.26.0
 python-dotenv>=1.0.0
+requests>=2.31.0  # descarga del índice GPR (Caldara & Iacoviello) en features.py
 
 # Modelos
 scikit-learn>=1.4.0
@@ -22,7 +23,3 @@ seaborn>=0.13.0
 
 # Persistencia de modelos
 joblib>=1.3.0
-
-# Scraping (extensión dataset de noticias)
-requests>=2.31.0
-python-dateutil>=2.9.0
