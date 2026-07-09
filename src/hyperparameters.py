@@ -24,9 +24,9 @@ def walk_forward_bayesian_search(
         Train 2008-2019 / Val 2020
         Train 2008-2020 / Val 2021
         ...
-        Train 2008-2023 / Val 2024
+        Train 2008-2023 / Val 2025
 
-    Optimiza AUC-ROC promedio sobre los folds. El test set (2025) no se toca.
+    Optimiza AUC-ROC promedio sobre los folds. El test set (2026) no se toca.
 
     Parámetros
     ----------
@@ -39,7 +39,7 @@ def walk_forward_bayesian_search(
     n_trials : int
         Número de trials Optuna.
     val_years : list
-        Años de validación de cada fold. Default [2020, 2021, 2022, 2023, 2024].
+        Años de validación de cada fold. Default [2020, 2021, 2022, 2023, 2024, 2025].
 
     Retorna
     -------
@@ -47,7 +47,7 @@ def walk_forward_bayesian_search(
         (best_params dict, optuna.Study)
     """
     if val_years is None:
-        val_years = [2020, 2021, 2022, 2023, 2024]
+        val_years = [2020, 2021, 2022, 2023, 2024, 2025]
 
     def objective(trial):
         params = dict(
@@ -184,7 +184,7 @@ def walk_forward_bayesian_search_mlp(
     def objective(trial):
         hidden = trial.suggest_categorical(
             "hidden_layer_sizes",
-            [(64,), (128, 64), (256, 128), (256, 128, 64)],
+            [(32,), (64,), (128, 64), (256, 128), (256, 128, 64)],
         )
         params = dict(
             hidden_layer_sizes  = hidden,

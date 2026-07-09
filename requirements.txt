@@ -9,6 +9,7 @@ python-dotenv>=1.0.0
 scikit-learn>=1.4.0
 xgboost>=2.0.0
 shap>=0.45.0
+optuna>=3.6.0
 
 # NLP / Sentiment
 torch>=2.2.0
