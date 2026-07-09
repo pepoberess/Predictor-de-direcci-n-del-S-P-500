@@ -71,7 +71,8 @@ def scale_features(X_train, X_val, X_test) -> tuple:
     -------
     tuple
         (X_train_scaled, X_val_scaled, X_test_scaled, scaler). El scaler se
-        devuelve para guardarlo y usarlo en predict.py sobre el test set externo.
+        devuelve para poder guardarlo junto con el modelo y reutilizarlo
+        sobre datos nuevos sin volver a fitear.
     """
     scaler = StandardScaler()
     X_train_s = scaler.fit_transform(X_train)
@@ -245,7 +246,8 @@ def evaluate_model(model, X, y, split_name: str = "test") -> dict:
 
 def save_model(model, scaler, model_name: str, models_dir: str) -> None:
     """
-    Guarda el modelo y el scaler con joblib para reutilizarlos en predict.py.
+    Guarda el modelo y el scaler con joblib para reutilizarlos más adelante
+    sin tener que reentrenar (ver load_model()).
 
     Parámetros
     ----------
@@ -314,7 +316,6 @@ def shap_analysis(xgb_model, X_train, X_test, feature_names: list) -> None:
 
     # Waterfall para 3 ejemplos del test set
     y_pred_test = xgb_model.predict(X_test)
-    y_true_test = None  # se pasa desde el notebook si se quiere filtrar TP/FP/FN
 
     for i, label in enumerate(["Ejemplo 1", "Ejemplo 2", "Ejemplo 3"]):
         if i >= len(shap_test):

@@ -63,9 +63,9 @@ def load_macro(raw_dir: str) -> pd.DataFrame:
 
 def load_news(raw_dir: str) -> pd.DataFrame:
     """
-    Carga el dataset de noticias desde data/raw/sp500_news.csv.
+    Carga el dataset de noticias desde data/raw/sp500_news_full.csv.
 
-    19,127 noticias, 3,507 fechas únicas, cobertura 2008-01-02 a 2024-03-04.
+    29,323 noticias, cobertura 2008-01-02 a 2026-06-18.
 
     Parámetros
     ----------
@@ -80,37 +80,6 @@ def load_news(raw_dir: str) -> pd.DataFrame:
     path = os.path.join(raw_dir, "sp500_news_full.csv")
     df = pd.read_csv(path, parse_dates=["Date"])
     return df
-
-
-def load_news_extended(raw_dir: str) -> pd.DataFrame:
-    """
-    Carga noticias: original + extensión (2024-2026), concatenadas.
-
-    La columna CP se descarta (no se usa en el pipeline, era redundante con
-    sp500_raw.csv, y la extensión nunca la tuvo). Hay 1 día de solapamiento
-    real entre original y extensión (2024-03-04) con titulares de fuentes
-    distintas — se conservan ambos, solo se dedupea por (Title, Date) exacto.
-
-    No incluye sp500_news_production.csv — ese set queda reservado fuera del
-    pool de modelado, para demostrar uso en vivo del modelo.
-
-    Parámetros
-    ----------
-    raw_dir : str
-        Ruta al directorio data/raw/.
-
-    Retorna
-    -------
-    pd.DataFrame
-        Columnas: Title (str), Date (datetime), ordenado por fecha.
-    """
-    original = load_news(raw_dir).drop(columns=["CP"])
-    path_ext = os.path.join(raw_dir, "sp500_news_extension.csv")
-    extension = pd.read_csv(path_ext, parse_dates=["Date"])
-
-    combinado = pd.concat([original, extension], ignore_index=True)
-    combinado = combinado.drop_duplicates(subset=["Title", "Date"])
-    return combinado.sort_values("Date").reset_index(drop=True)
 
 
 def download_sp500(start: str, end: str, save_path: str) -> pd.DataFrame:

@@ -342,20 +342,15 @@ def mergear_archivo(path: str, gpr: pd.DataFrame, GPR_COLS: list) -> None:
 def add_geopolitical_risk_index_macro() -> None:
     """
     Agrega el índice GPR (Geopolitical Risk, Caldara & Iacoviello) como columnas nuevas
-    en los archivos de macro de FRED. GPR cubre 1985-hoy sin huecos.
+    en macro_fred.csv. GPR cubre 1985-hoy sin huecos.
 
     Se llama una sola vez desde el notebook 00, después de download_macro().
+    Deja los valores en su fecha de observación cruda; el shift a fecha de
+    publicación real (semanal, los lunes) se aplica después, dentro de
+    add_macro_features().
 
     Modifica (append de columnas, no de filas):
         data/raw/macro_fred.csv
-        data/raw/macro_fred_production.csv
-
-    IMPORTANTE — sin shift todavía: esto agrega el valor RAW de GPR (fecha de
-    observación tal como viene en el .xls). La serie solo se actualiza los
-    lunes (ver scraping/A eliminar/test_gpr.py), así que antes de usar estas
-    columnas como features hace falta el mismo tipo de shift a fecha de
-    publicación real que ya tienen CPI/UNRATE en add_macro_features() — eso
-    todavía NO está implementado acá.
     """
     GPR_URL = "https://www.matteoiacoviello.com/gpr_files/data_gpr_daily_recent.xls"
     GPR_COLS = ["GPRD", "GPRD_ACT", "GPRD_THREAT"]
@@ -391,18 +386,18 @@ def add_macro_features(prices: pd.DataFrame, macro: pd.DataFrame) -> pd.DataFram
     Sin este shift el modelo vería el dato antes de que existiera públicamente.
     CPI: día 13 del mes siguiente al observado.
     UNRATE: primer viernes del mes siguiente al observado.
-    GPRD/GPRD_ACT/GPRD_THREAT: próximo lunes después del día observado — la
+    GPRD/GPRD_ACT/GPRD_THREAT: próximo lunes después del día observado, ya que la
     serie diaria de Caldara & Iacoviello se actualiza en batch los lunes, no
-    en tiempo real día a día (ver scraping/A eliminar/test_gpr.py). Si el
-    DataFrame de macro no tiene estas columnas, se ignoran sin error.
-    FEDFUNDS no se shiftea — es la tasa efectiva, conocida casi sin demora.
+    en tiempo real día a día. Si el DataFrame de macro no tiene estas columnas,
+    se ignoran sin error.
+    FEDFUNDS no se shiftea: es la tasa efectiva, conocida casi sin demora.
 
     Parámetros
     ----------
     prices : pd.DataFrame
         DataFrame de precios con índice DatetimeIndex (días de trading).
     macro : pd.DataFrame
-        DataFrame de indicadores macro, salida de data_loader.load_macro_extended().
+        DataFrame de indicadores macro, salida de data_loader.load_macro().
 
     Retorna
     -------
@@ -480,7 +475,7 @@ def build_feature_matrix(
         Output de sentiment.aggregate_daily_sentiment() (ya shifteado 1 día).
         Columnas esperadas: sentiment_mean, sentiment_std, news_count.
     include_sentiment : bool
-        Si False, devuelve solo técnicas + macro (Experimentos 1 y 2).
+        Si False, devuelve solo las features técnicas y macro, sin sentiment.
     save_path : str, opcional
         Si se provee, guarda la matriz resultante como CSV en esa ruta.
 
